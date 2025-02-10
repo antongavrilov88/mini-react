@@ -1,7 +1,12 @@
-import {createElement, useState} from './mini-react';
+import {createElement, useState, useEffect} from './mini-react';
 
 export const App = () => {
     const [count, setCount] = useState<number>(0)
+
+    useEffect(() => {
+        console.log("🎉 useEffect выполнен! count:", count);
+        return () => console.log("🗑 Очистка перед следующим вызовом useEffect()"); 
+    }, [count]);
 
     console.log('kjghksjldhvbjksdbf', 'count', count)
     return createElement("div", {},
