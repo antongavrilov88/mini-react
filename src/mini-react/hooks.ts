@@ -1,6 +1,7 @@
 let state: any[] = []
 let stateIndex = 0
 let reRender: () => void
+let pendingUpdates: (() => void)[] = []
 
 export function useState<T>(initialValue: T): [T, (newValue: T | ((prev: T) => T)) => void] {
     const localIndex = stateIndex;
@@ -15,7 +16,12 @@ export function useState<T>(initialValue: T): [T, (newValue: T | ((prev: T) => T
         } else {
             state[localIndex] = update;
         }
-        if (reRender) reRender();
+        if (reRender) {
+            queueMicrotask(() => {
+                while (pendingUpdates.length) pendingUpdates.shift()?.()
+                reRender()
+            })
+        }
     };
 
     stateIndex++;
@@ -23,7 +29,7 @@ export function useState<T>(initialValue: T): [T, (newValue: T | ((prev: T) => T
     return [state[localIndex], setState];
 }
 
-let effects: { callback: () => void; deps: any[] | undefined; cleanup?: () => void }[] = []
+let effects: { callback: () => void; deps: any[] | undefined; cleanup?: () => void, sync: boolean }[] = []
 let effectIndex = 0
 
 /**
@@ -33,36 +39,41 @@ let effectIndex = 0
  * 
  */
 export function useEffect(callback: () => void | (() => void), deps?: any[]) {
-    const localIndex = effectIndex
+    scheduleEffect(callback, deps, false)
+}
 
+export function useLayoutEffect(callback: () => void | (() => void), deps?: any[]) {
+    scheduleEffect(callback, deps, true)
+}
+
+function scheduleEffect(callback: () => void | (() => void), deps?: any[], sync = false) {
+    const localIndex = effectIndex
     const prevDeps = effects[localIndex]?.deps
 
     const hasChanged = !prevDeps || deps?.some((dep, i) => dep !== prevDeps[i])
 
     if (hasChanged) {
-        if (effects[localIndex]?.cleanup) {
-            effects[localIndex].cleanup!()
-        }
-
-        effects[localIndex] = {
-            callback,
-            deps,
-            cleanup: undefined
-        }
+        if (effects[localIndex]?.cleanup) effects[localIndex].cleanup!();
+        effects[localIndex] = { callback, deps, cleanup: undefined, sync }
     }
-
     effectIndex++
 }
 
 export function runEffects() {
-    effects.forEach((effect, index) => {
-        if (effect.cleanup) {
-            effect.cleanup()
-        }
+    effects
+        .filter((effect) => effect.sync)
+        .forEach(runEffect)
 
-        // @ts-ignore
-        effect.cleanup = effect.callback() || undefined
+    Promise.resolve().then(() => {
+        effects
+            .filter((effect) => !effect.sync)
+            .forEach(runEffect)
     })
+}
+
+function runEffect(effect: { callback: () => void | (() => void); deps?: any[]; cleanup?: () => void }) {
+    if (effect.cleanup) effect.cleanup()
+    effect.cleanup = effect.callback || undefined
 }
 
 export const setRender = (callback: () => void) => {
@@ -70,6 +81,6 @@ export const setRender = (callback: () => void) => {
         stateIndex = 0;
         effectIndex = 0
         callback()
-        queueMicrotask(runEffects)
+        runEffects()
     }
 }
