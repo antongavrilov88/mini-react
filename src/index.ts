@@ -9,4 +9,4 @@ const reRender = () => {
 
 setRender(reRender)
 
-reRender()
+render(App(), container)
